@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+  
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <style>
+    :root { --blue:#526b9e; --pale:#edf1f8; --ink:#202735; --muted:#687386; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--pale); color:var(--ink); font-family:Arial,sans-serif; }
+    main { max-width:620px; margin:0 auto; padding:18px 14px 34px; }
+    .top { background:white; border-radius:16px; padding:20px; box-shadow:0 2px 12px #17233b12; }
+    h1 { font-size:22px; margin:0 0 8px; }
+    .sub { color:var(--muted); font-size:14px; line-height:1.4; }
+    .progress { height:8px; background:#e2e7f0; border-radius:20px; margin-top:17px; overflow:hidden; }
+    .bar { height:100%; background:var(--blue); width:0%; transition:width .2s; }
+    .card { background:white; border-radius:16px; padding:24px 20px; margin-top:16px; min-height:290px; box-shadow:0 2px 12px #17233b12; display:flex; flex-direction:column; }
+    .section { color:var(--blue); font-size:12px; font-weight:bold; text-transform:uppercase; letter-spacing:.06em; min-height:18px; }
+    .counter { color:var(--muted); font-size:13px; margin-top:12px; }
+    h2 { font-size:23px; line-height:1.3; margin:14px 0 20px; }
+    .required { color:#c0392b; }
+    .answer { border:1px solid #d9deea; border-radius:12px; padding:15px; min-height:62px; font-size:18px; line-height:1.4; background:#fbfcff; overflow-wrap:anywhere; }
+    .answer.empty { color:#929bad; font-size:15px; }
+    .hint { color:var(--muted); font-size:13px; line-height:1.4; margin-top:10px; }
+    .mic-wrap { display:flex; justify-content:center; margin:20px 0 8px; }
+    button { border:0; border-radius:13px; padding:15px 18px; font-size:16px; font-weight:bold; cursor:pointer; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .mic { width:82px; height:82px; border-radius:50%; background:var(--blue); color:white; font-size:30px; box-shadow:0 5px 14px #526b9e44; }
+    .mic.listening { background:#c0392b; animation:pulse 1.1s infinite; }
+    @keyframes pulse { 50% { transform:scale(1.06); } }
+    .status { text-align:center; min-height:22px; color:var(--muted); font-size:14px; }
+    .actions { display:flex; gap:10px; margin-top:auto; padding-top:22px; }
+    .actions button { flex:1; }
+    .secondary { background:#e8ecf4; color:#34425b; }
+    .primary { background:var(--blue); color:white; }
+    .skip { background:transparent; color:var(--muted); font-size:13px; padding:10px; }
+    .choice { display:grid; gap:10px; margin-top:6px; }
+    .choice button { background:#eef2f9; color:#34425b; text-align:left; }
+    .choice button.selected { outline:3px solid var(--blue); background:#e0e8f7; }
+    .finish { display:none; }
+    .notice { background:#fff7e6; color:#765516; padding:12px; border-radius:10px; font-size:13px; line-height:1.45; margin-top:14px; }
+    .success { color:#176b3a; font-weight:bold; }
+    @media (max-width:380px) { h2 {font-size:21px;} .card{padding:20px 16px;} }
+  </style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Informe de Laboratorio Clínico</h1>
+    <div class="sub">Formulario por voz · Responde hablando, sin utilizar el teclado.</div>
+    <div class="progress"><div class="bar" id="bar"></div></div>
+  </div>
+
+  <section class="card" id="questionCard">
+    <div class="section" id="sectionName"></div>
+    <div class="counter" id="counter"></div>
+    <h2 id="question"></h2>
+    <div id="freeAnswer">
+      <div class="answer empty" id="answer">Tu respuesta aparecerá aquí</div>
+      <div class="mic-wrap"><button class="mic" id="mic" aria-label="Grabar respuesta">🎙</button></div>
+      <div class="status" id="status">Pulsa el micrófono y habla claramente.</div>
+      <div class="hint" id="hint">Puedes volver a grabar para reemplazar la respuesta. Revisa cuidadosamente los valores numéricos.</div>
+    </div>
+    <div class="choice" id="choices" hidden></div>
+    <div class="actions">
+      <button class="secondary" id="back">Anterior</button>
+      <button class="primary" id="next">Siguiente</button>
+    </div>
+    <button class="skip" id="skip">Dejar esta respuesta en blanco</button>
+  </section>
+
+  <section class="card finish" id="finishCard">
+    <h2>Revisar y enviar informe</h2>
+    <p id="summary" class="sub"></p>
+    <div class="notice">Antes de enviar, verifica los resultados del laboratorio. La transcripción de voz puede cometer errores, especialmente con cifras, decimales y términos técnicos.</div>
+    <div class="actions">
+      <button class="secondary" id="edit">Volver a revisar</button>
+      <button class="primary" id="send">Enviar informe</button>
+    </div>
+    <div class="status" id="sendStatus"></div>
+  </section>
+  <div class="notice">Privacidad: los datos ingresados se guardarán en una hoja de cálculo de Google asociada a la cuenta que publique esta aplicación. Comparte el enlace únicamente con personal autorizado.</div>
+</main>
+
+<script>
+const ENDPOINT = https://script.google.com/macros/s/AKfycbxWIDupNDYqzCrl9XnseQ5dMcx_shzkEOfVYGMA8X4aTVGsNwT423Cug_vknu1-2NTr1w/exec;
+const fields = [
+  {label:'Paciente - Nombre Completo'},
+  {label:'Género', options:['Masculino','Femenino']},
+  {label:'Glóbulos Rojos (mm³)', section:'Hemograma completo - Serie Roja'},
+  {label:'Hematocrito (%)'}, {label:'Hemoglobina (g/dL)'}, {label:'V.C.M. (fL)'},
+  {label:'H.C.M. (pg)'}, {label:'C.H.C.M. (%)'}, {label:'VSG 1 Hora (mm)'},
+  {label:'Recuento de Plaquetas'}, {label:'Plaquetas (Estado)'},
+  {label:'Glóbulos Blancos (mm³)', section:'Hemograma completo - Serie Blanca'},
+  {label:'Promielocitos'}, {label:'Mielocitos'}, {label:'Metamielocitos'},
+  {label:'Cayados'}, {label:'Segmentados'}, {label:'Linfocitos'}, {label:'Monocitos'},
+  {label:'Eosinófilos'}, {label:'Basófilos'}, {label:'Blastos'}, {label:'Células Atípicas'},
+  {label:'Bilirrubina Total (mg/dL)', section:'Bioquímica'},
+  {label:'Bilirrubina Directa (mg/dL)'}, {label:'Bilirrubina Indirecta (mg/dL)'},
+  {label:'Transaminasa GOT (U/L)'}, {label:'Transaminasa GPT (U/L)'},
+  {label:'Gama Glutamil Transferasa (U/L)'},
+  {label:'Glucosa (mg/dL)', section:'Química sanguínea'}, {label:'Urea (mg/dL)'},
+  {label:'Creatinina (mg/dL)'}, {label:'Ácido Úrico (mg/dL)'},
+  {label:'Proteínas Totales (g/dL)'}, {label:'Albúmina (g/dL)'},
+  {label:'Globulina (g/dL)'}, {label:'Relación A/G'},
+  {label:'Colesterol Total (mg/dL)', section:'Perfil lipídico'},
+  {label:'Colesterol HDL (mg/dL)'}, {label:'Triglicéridos (mg/dL)'},
+  {label:'HIV 1.2', section:'Serología', options:['No Reactivo','Reactivo']},
+  {label:'H.A.I. - Chagas', options:['No Reactivo','Reactivo']},
+  {label:'Hep B IgG Anticuerpo', options:['No Reactivo','Reactivo']},
+  {label:'Hep B IgM Anticuerpo', options:['No Reactivo','Reactivo']},
+  {label:'Hepatitis C (Anti-HCV)', options:['No Reactivo','Reactivo']},
+  {label:'Cantidad', section:'Orina completa - Examen físico'}, {label:'Aspecto'},
+  {label:'Color'}, {label:'Olor'}, {label:'pH'}, {label:'Densidad'}, {label:'Sedimento'},
+  {label:'Glucosa', section:'Orina completa - Examen químico'}, {label:'Proteínas'},
+  {label:'Cetonas'}, {label:'Pigmentos Biliares'}, {label:'Urobilina'},
+  {label:'Hemoglobina'}, {label:'Nitritos'},
+  {label:'Células Epiteliales', section:'Sedimento microscópico'},
+  {label:'Hematíes (por campo)'}, {label:'Piocitos'}, {label:'Leucocitos (por campo)'},
+  {label:'Cilindros Hialinos'}, {label:'Cilindros Granulosos'},
+  {label:'Cilindros Hemáticos'}, {label:'Cilindros Leucocitarios'},
+  {label:'Cristales Oxalato de Calcio'}, {label:'Cristales Ácido Úrico'},
+  {label:'Cristales Fosfato Triple'}, {label:'Cristales Urato Amorfo'},
+  {label:'Bacterias'}, {label:'Levaduras'}, {label:'Filamentos Mucosos'},
+  {label:'HbA1c - Resultado (%)', section:'Hemoglobina glicosilada'}
+];
+
+const answers = {};
+let index = 0;
+let recognition = null;
+let listening = false;
+const $ = id => document.getElementById(id);
+const norm = s => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    $('status').textContent = 'Este navegador no ofrece reconocimiento de voz. Abre el enlace en Google Chrome actualizado para Android.';
+    $('mic').disabled = true;
+    return;
+  }
+  recognition = new SR();
+  recognition.lang = 'es-BO';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onstart = () => { listening = true; $('mic').classList.add('listening'); $('status').textContent = 'Escuchando… habla ahora.'; };
+  recognition.onresult = event => {
+    const transcript = event.results[0][0].transcript.trim();
+    const field = fields[index];
+    if (field.options) {
+      const match = field.options.find(o => norm(o) === norm(transcript));
+      if (match) {
+        answers[field.label] = match;
+        render();
+        $('status').textContent = 'Respuesta reconocida: ' + match;
+      } else {
+        $('status').textContent = 'No reconocí una opción válida. Di exactamente: ' + field.options.join(' o ') + '.';
+      }
+    } else {
+      answers[field.label] = transcript;
+      render();
+      $('status').textContent = 'Respuesta transcrita. Comprueba que sea correcta.';
+    }
+  };
+  recognition.onerror = event => {
+    $('status').textContent = event.error === 'not-allowed'
+      ? 'Permite el acceso al micrófono en el navegador y vuelve a intentarlo.'
+      : 'No se pudo reconocer la voz (' + event.error + '). Inténtalo nuevamente.';
+  };
+  recognition.onend = () => { listening = false; $('mic').classList.remove('listening'); };
+}
+
+function render() {
+  const f = fields[index];
+  $('sectionName').textContent = f.section || sectionFor(index);
+  $('counter').textContent = 'Pregunta ' + (index+1) + ' de ' + fields.length;
+  $('question').innerHTML = escapeHtml(f.label) + (index === 0 ? ' <span class="required">*</span>' : '');
+  $('bar').style.width = (index / fields.length * 100) + '%';
+  $('back').disabled = index === 0;
+  $('next').textContent = index === fields.length-1 ? 'Revisar' : 'Siguiente';
+  $('skip').style.display = index === 0 ? 'none' : 'block';
+
+  $('freeAnswer').hidden = false;
+  $('choices').hidden = !f.options;
+  const val = answers[f.label] || '';
+  $('answer').textContent = val || (f.options ? 'Di tu respuesta o selecciona una opción.' : 'Tu respuesta aparecerá aquí');
+  $('answer').classList.toggle('empty', !val);
+  $('status').textContent = val ? 'Respuesta registrada. Puedes volver a dictarla.' : 'Pulsa el micrófono y habla claramente.';
+  $('hint').textContent = f.options
+    ? 'Puedes decir la opción en voz alta o seleccionarla en la pantalla.'
+    : 'Puedes volver a grabar para reemplazar la respuesta. Revisa cuidadosamente los valores numéricos.';
+  $('mic').disabled = !recognition;
+  if (f.options) {
+    $('choices').innerHTML = '';
+    f.options.forEach(option => {
+      const b = document.createElement('button');
+      b.textContent = option;
+      if (answers[f.label] === option) b.classList.add('selected');
+      b.onclick = () => { answers[f.label] = option; render(); };
+      $('choices').appendChild(b);
+    });
+  }
+}
+
+function sectionFor(i) {
+  if (i < 2) return 'Datos del paciente';
+  return '';
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function stopListening() {
+  if (recognition && listening) recognition.stop();
+}
+$('mic').onclick = () => {
+  if (!recognition) return;
+  if (listening) { stopListening(); return; }
+  try { recognition.start(); } catch(e) { $('status').textContent = 'Espera un momento y vuelve a pulsar el micrófono.'; }
+};
+$('back').onclick = () => { stopListening(); if (index > 0) { index--; render(); } };
+$('next').onclick = () => {
+  stopListening();
+  if (index === 0 && !(answers[fields[0].label] || '').trim()) {
+    $('status').textContent = 'El nombre completo del paciente es obligatorio.';
+    return;
+  }
+  if (index < fields.length-1) { index++; render(); }
+  else showFinish();
+};
+$('skip').onclick = () => { stopListening(); index++; if (index < fields.length) render(); else showFinish(); };
+function showFinish() {
+  $('questionCard').style.display = 'none';
+  $('finishCard').style.display = 'flex';
+  const filled = fields.filter(f => (answers[f.label] || '').toString().trim()).length;
+  $('summary').textContent = 'Paciente: ' + (answers[fields[0].label] || '') + '. Respuestas completadas: ' + filled + ' de ' + fields.length + '.';
+}
+$('edit').onclick = () => { $('finishCard').style.display='none'; $('questionCard').style.display='flex'; index=0; render(); };
+function checkSaved(id, callback) {
+  const cb = "labcb_" + Date.now() + "_" + Math.floor(Math.random()*10000);
+  window[cb] = data => { delete window[cb]; script.remove(); callback(data); };
+  const script = document.createElement("script");
+  script.src = ENDPOINT + "?action=status&id=" + encodeURIComponent(id) + "&callback=" + cb;
+  script.onerror = () => { delete window[cb]; script.remove(); callback({ok:false}); };
+  document.body.appendChild(script);
+}
+$('send').onclick = async () => {
+  if (!ENDPOINT.startsWith("https://script.google.com/")) {
+    $('sendStatus').textContent = "Falta configurar la URL de recepción de Apps Script.";
+    return;
+  }
+  $('send').disabled = true;
+  $('sendStatus').textContent = "Enviando informe…";
+  const id = "LAB-" + Date.now() + "-" + Math.random().toString(36).slice(2,8);
+  const payload = JSON.stringify({id, answers, labels: fields.map(f => f.label)});
+  try {
+    await fetch(ENDPOINT, {
+      method: "POST", mode: "no-cors",
+      headers: {"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body: new URLSearchParams({payload})
+    });
+    let tries = 0;
+    const poll = () => checkSaved(id, result => {
+      if (result && result.ok) {
+        $('sendStatus').innerHTML = '<span class="success">Informe recibido y guardado.</span><br>Código: ' + id;
+      } else if (++tries < 12) {
+        setTimeout(poll, 1200);
+      } else {
+        $('sendStatus').textContent = "No se pudo confirmar el guardado. Comunica este código al administrador: " + id;
+        $('send').disabled = false;
+      }
+    });
+    setTimeout(poll, 1200);
+  } catch (err) {
+    $('sendStatus').textContent = "Error de envío: " + err.message;
+    $('send').disabled = false;
+  }
+};
+initRecognition();
+render();
+</script>
+</body>
+</html>
